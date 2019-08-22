@@ -1,0 +1,466 @@
+' Input Sheet Information
+Public Const SECTION_COLUMN As String = "A"
+Public Const TASK_COLUMN As String = "B"
+Public Const DAYS_NEEDED_COLUMN As String = "C"
+Public Const ORDERING_COLUMN As String = "D"
+Public Const START_DATE_BOX As String = "F3"
+Public Const PROJECT_NAME_BOX = "G3"
+Public Const COMPANY_NAME = "Riverwood Construction LLC"
+
+' Calendar Formatting Information
+Public Const CALENDAR_TASKS_COLUMN As Integer = 2
+Public Const CALENDAR_DATE_ROW As Integer = 6
+Public Const CALENDAR_WEEKEND_COLOR_R As Integer = 211
+Public Const CALENDAR_WEEKEND_COLOR_G As Integer = 211
+Public Const CALENDAR_WEEKEND_COLOR_B As Integer = 211
+Public Const CALENDAR_FILL_COLOR_R As Integer = 60
+Public Const CALENDAR_FILL_COLOR_G As Integer = 60
+Public Const CALENDAR_FILL_COLOR_B As Integer = 60
+Public Const CALENDAR_DATE_COLUMN_WIDTH As Integer = 3
+Public Const CALENDAR_DATES_ALIGNMENT = xlCenter
+
+
+
+
+Sub Main()
+    Dim days As Collection, section As Collection, success As Boolean, row As Integer
+    Set days = New Collection
+    row = 3
+       
+    ' Generate a schedule for each section one a at a time, then concatenate sections for entire schedule
+    While GetCellValue(TASK_COLUMN & CStr(row)) <> ""
+        Set section = doSection(row)
+        Set days = mergeCollections(days, section)
+        row = findSectionEnd(TASK_COLUMN, row) + 2
+    Wend
+    
+    createCalendar days
+End Sub
+
+Function findSectionEnd(column As String, row As Integer)
+    Dim curCell As String
+    curCell = column & CStr(row)
+    
+    Dim val As String
+    val = GetCellValue(curCell)
+    
+    While val <> ""
+        row = row + 1
+        
+        curCell = column & CStr(row)
+        val = GetCellValue(curCell)
+    Wend
+    
+    findSectionEnd = row - 1
+End Function
+
+Function mergeCollections(col1 As Collection, col2 As Collection) As Collection
+    For Each element In col2
+        col1.Add element
+    Next
+        
+    Set mergeCollections = col1
+End Function
+
+
+
+
+
+
+' Code to generate schedule for a single section
+
+Function doSection(row As Integer) As Collection
+    Dim allTasks As Collection, sequentialTasks As Collection, orderedTaskSchedule As Collection, schedule As Collection
+
+    Set allTasks = readTasks(row)
+    Set sequentialTasks = removeSequentialTasks(allTasks)
+    Set orderedTaskSchedule = sortOrderedTasks(allTasks)
+    Set schedule = addSequentialTasks(orderedTaskSchedule, sequentialTasks)
+    
+    Set doSection = schedule
+End Function
+
+Function readTasks(row As Integer) As Collection
+    Dim tasks As Collection, currentTask As Collection
+    Set tasks = New Collection
+
+    While GetCellValue(TASK_COLUMN & CStr(row)) <> ""
+        Set currentTask = New Collection
+        currentTask.Add GetCellValue(TASK_COLUMN & CStr(row))
+        currentTask.Add GetCellValue(DAYS_NEEDED_COLUMN & CStr(row))
+        currentTask.Add GetCellValue(ORDERING_COLUMN & CStr(row))
+        tasks.Add currentTask
+        row = row + 1
+    Wend
+    
+    Set readTasks = tasks
+End Function
+
+Function GetCellValue(cell As String)
+    GetCellValue = Range(cell).Value
+End Function
+
+Function removeSequentialTasks(allTasks As Collection) As Collection
+    Dim sequentialTasks As Collection, sequentialsToRemove As Collection
+    Set sequentialTasks = New Collection
+    Set sequentialsToRemove = New Collection
+    
+    For i = 1 To allTasks.Count
+        If Not IsNumeric(allTasks(i)(3)) Then
+            sequentialTasks.Add allTasks(i)
+            sequentialsToRemove.Add i
+        End If
+    Next i
+    
+    removeGivenIndicesFromCollection allTasks, sequentialsToRemove
+    Set removeSequentialTasks = sequentialTasks
+End Function
+
+Function findEarliestTasksLeft(tasks As Collection) As Collection
+    Dim earliestTasks As Collection, indicesToRemove As Collection
+    Set earliestTasks = New Collection
+    Set indicesToRemove = New Collection
+    
+    For i = 1 To tasks.Count
+        If earliestTasks.Count = 0 Then
+            earliestTasks.Add tasks(i)
+            indicesToRemove.Add i
+        ElseIf tasks(i)(3) < earliestTasks(1)(3) Then
+            Set earliestTasks = New Collection
+            earliestTasks.Add tasks(i)
+            Set indicesToRemove = New Collection
+            indicesToRemove.Add i
+        ElseIf tasks(i)(3) = earliestTasks(1)(3) Then
+            earliestTasks.Add tasks(i)
+            indicesToRemove.Add i
+        End If
+    Next
+    removeGivenIndicesFromCollection tasks, indicesToRemove
+       
+    Set findEarliestTasksLeft = earliestTasks
+End Function
+
+Sub removeGivenIndicesFromCollection(coll As Collection, indicesToRemove As Collection)
+    Dim curRemoval As Integer
+    
+    ' Iterate through indices to remove backwards to prevent Collection being shifted downwards
+    For i = 1 To indicesToRemove.Count
+        curRemoval = indicesToRemove(indicesToRemove.Count + 1 - i)
+        coll.remove (curRemoval)
+    Next
+End Sub
+
+Function sortOrderedTasks(tasks As Collection) As Collection
+    Dim days As Collection, earliest As Collection, beginDay As Integer, newDay As Collection
+    Set days = New Collection
+
+    While tasks.Count > 0
+        Set earliest = findEarliestTasksLeft(tasks)
+        beginDay = days.Count + 1
+        
+        ' TODO: Add in sorting algorithm to move shortest tasks first so they appear on schedule with completed tasks first
+        
+        For Each task In earliest
+            addTaskToSchedule beginDay, task, days
+        Next
+    Wend
+    
+    Set sortOrderedTasks = days
+End Function
+
+Sub addTaskToSchedule(beginDay As Integer, newTask, schedule As Collection)
+    Dim newDay As Collection
+    For i = beginDay To beginDay + newTask(2) - 1
+        If i > schedule.Count Then
+            Set newDay = New Collection
+            newDay.Add newTask
+            schedule.Add newDay
+        Else
+            schedule(i).Add newTask
+        End If
+    Next i
+End Sub
+
+Function addSequentialTasks(schedule As Collection, sequentialTasks As Collection) As Collection
+    Dim indicesToRemove As Collection, ordering As String, plusSignIndex As Integer, previousTask As String, offset As Integer, startOfTask As Integer, tempDay As Collection, addedNewSequentialTask As Boolean
+    
+    While sequentialTasks.Count > 0
+        addedNewSequentialTask = False
+        Set indicesToRemove = New Collection
+        For i = 1 To sequentialTasks.Count
+            'Parse string containing information about sequentiality
+            ordering = sequentialTasks(i)(3)
+            plusSignIndex = InStr(ordering, "+")
+            If plusSignIndex = 0 Then
+                previousTask = ordering
+                offset = -1
+            Else
+                previousTask = Trim(Left(ordering, plusSignIndex - 1))
+                offset = CInt(Trim(Right(ordering, Len(ordering) - plusSignIndex)))
+            End If
+            
+            ' Use for loop to iterate through schedule. If you find the first day, iterate until you have reached offset (or end of that task), and add i to indicesToRemove
+            startOfTask = 0
+            For currentDay = 1 To schedule.Count
+                If isTaskInDay(previousTask, schedule(currentDay)) Then
+                    startOfTask = currentDay
+                    Exit For
+                End If
+            Next currentDay
+            
+            ' If previous task was found, then add it to schedule and remove it from sequential tasks
+            If startOfTask <> 0 Then
+                If offset < 0 Then 'User did not enter offset, so execute this task at completion of previousTask
+                    While taskStillGoing(startOfTask, schedule, previousTask) 'startOfTask <= schedule.Count And isTaskInDay(previousTask, schedule(startOfTask))
+                        startOfTask = startOfTask + 1
+                    Wend
+                Else
+                    For j = startOfTask To startOfTask + offset - 1
+                        If j > schedule.Count Then
+                            Set tempDay = New Collection
+                            schedule.Add tempDay
+                        End If
+                        startOfTask = startOfTask + 1
+                    Next j
+                End If
+                
+                addTaskToSchedule startOfTask, sequentialTasks(i), schedule
+                indicesToRemove.Add i
+                addedNewSequentialTask = True
+            End If
+        Next i
+        If Not addedNewSequentialTask Then
+            MsgBox "ERROR: Unrecognized task: " & sequentialTasks(1)(3) & " (Hint: Check your spelling)"
+            Exit Function
+        End If
+        removeGivenIndicesFromCollection sequentialTasks, indicesToRemove
+    Wend
+
+    Set addSequentialTasks = schedule
+End Function
+
+Function taskStillGoing(startOfTask As Integer, schedule As Collection, previousTask As String) As Boolean
+    If startOfTask > schedule.Count Then
+        taskStillGoing = False
+    Else
+        taskStillGoing = isTaskInDay(previousTask, schedule(startOfTask))
+    End If
+End Function
+
+Function isTaskInDay(taskName As String, myDay As Collection) As Boolean
+    Dim result As Boolean
+    result = False
+    
+    For Each task In myDay
+        If task(1) = taskName Then
+            result = True
+            Exit For
+        End If
+    Next
+    isTaskInDay = result
+End Function
+
+
+
+
+
+' Code for creating the calendar from the given schedule below
+
+Sub createCalendar(days As Collection)
+    Dim wb As Workbook, ws As Worksheet, row As Integer, myDay As Integer, startDate As Date, projectName As String, currentMonth As Integer
+    
+    startDate = CDate(GetCellValue(START_DATE_BOX))
+    projectName = GetCellValue(PROJECT_NAME_BOX)
+    
+    Set wb = ActiveWorkbook
+    Set ws = AddNewWorksheet("Calendar")
+    
+    ' Add appropriate headers to calendar worksheet
+    addHeaders ws, projectName
+    
+    currentMonth = 0
+    myDay = 0
+    For i = 1 To days.Count
+        
+        While isWeekendOrHoliday(DateAdd("d", myDay, startDate)) <> ""
+            ws.Cells(CALENDAR_DATE_ROW + 1, myDay + 1 + CALENDAR_TASKS_COLUMN).Value = isWeekendOrHoliday(DateAdd("d", myDay, startDate))
+            ws.Cells(CALENDAR_DATE_ROW - 1, myDay + 1 + CALENDAR_TASKS_COLUMN).Value = CStr(day(DateAdd("d", myDay, startDate)))
+            ws.Cells(CALENDAR_DATE_ROW, myDay + 1 + CALENDAR_TASKS_COLUMN).Value = getWeekdayAbbreviation(DateAdd("d", myDay, startDate))
+            
+            ' Add month names to top of calendar
+            If Month(DateAdd("d", myDay, startDate)) <> currentMonth Then
+                currentMonth = Month(DateAdd("d", myDay, startDate))
+                ws.Cells(CALENDAR_DATE_ROW - 2, myDay + 1 + CALENDAR_TASKS_COLUMN).Value = getMonthName(currentMonth)
+            End If
+            myDay = myDay + 1
+        Wend
+        ws.Cells(CALENDAR_DATE_ROW - 1, myDay + 1 + CALENDAR_TASKS_COLUMN).Value = CStr(day(DateAdd("d", myDay, startDate)))
+        ws.Cells(CALENDAR_DATE_ROW, myDay + 1 + CALENDAR_TASKS_COLUMN).Value = getWeekdayAbbreviation(DateAdd("d", myDay, startDate))
+        
+        ' Add month names to top of calendar
+        If Month(DateAdd("d", myDay, startDate)) <> currentMonth Then
+            currentMonth = Month(DateAdd("d", myDay, startDate))
+            ws.Cells(CALENDAR_DATE_ROW - 2, myDay + 1 + CALENDAR_TASKS_COLUMN).Value = getMonthName(currentMonth)
+        End If
+        
+        For Each task In days(i)
+            row = CALENDAR_DATE_ROW + 1
+            While ws.Cells(row, CALENDAR_TASKS_COLUMN).Value <> "" And ws.Cells(row, CALENDAR_TASKS_COLUMN).Value <> task(1)
+                row = row + 1
+            Wend
+            ws.Cells(row, CALENDAR_TASKS_COLUMN).Value = task(1)
+            ws.Cells(row, myDay + CALENDAR_TASKS_COLUMN + 1).Interior.Color = RGB(CALENDAR_FILL_COLOR_R, CALENDAR_FILL_COLOR_G, CALENDAR_FILL_COLOR_B)
+        Next
+        myDay = myDay + 1
+    Next i
+
+    reformatCalendar ws, myDay + CALENDAR_TASKS_COLUMN, row
+End Sub
+
+Sub addHeaders(ws As Worksheet, projectName As String)
+    ws.Cells(1, 1).Value = "From: " & COMPANY_NAME
+    ws.Cells(2, 1).Value = "For: " & projectName
+    ws.Cells(3, 1).Value = "Date: " & CStr(Date)
+    ws.Cells(4, 2).Value = "Calendar"
+    ws.Cells(4, 2).Font.Bold = True
+End Sub
+
+Function AddNewWorksheet(worksheetName As String) As Worksheet
+    Dim wb As Workbook: Set wb = ActiveWorkbook
+    Dim shts As Sheets: Set shts = wb.Sheets
+    
+    If worksheetExists(worksheetName) Then
+        Dim num As Integer
+        num = 2
+        worksheetName = worksheetName & CStr(num)
+        While worksheetExists(worksheetName)
+            worksheetName = Left(worksheetName, Len(worksheetName) - 1) & CStr(num)
+            num = num + 1
+        Wend
+    End If
+    
+    Dim obj As Object: Set obj = shts.Add(Before:=ActiveSheet, Count:=1, Type:=XlSheetType.xlWorksheet)
+    obj.name = worksheetName
+    
+    Set AddNewWorksheet = wb.Sheets(worksheetName)
+End Function
+
+Function worksheetExists(shtName As String, Optional wb As Workbook) As Boolean
+    Dim sht As Worksheet
+
+    If wb Is Nothing Then Set wb = ThisWorkbook
+    On Error Resume Next
+    Set sht = wb.Sheets(shtName)
+    On Error GoTo 0
+    worksheetExists = Not sht Is Nothing
+End Function
+
+Function isWeekendOrHoliday(myDate As Date) As String
+    If Month(myDate) = 12 And day(myDate) = 25 Then
+        isWeekendOrHoliday = "Christmas"
+    ElseIf Month(myDate) = 7 And day(myDate) = 4 Then
+        isWeekendOrHoliday = "4th of July"
+    ElseIf Month(myDate) = 1 And day(myDate) = 1 Then
+        isWeekendOrHoliday = "New Year's Day"
+    ElseIf Month(myDate) = 9 And Weekday(myDate) = 2 And day(myDate) <= 7 Then 'First Monday of September
+        isWeekendOrHoliday = "Labor day"
+    ElseIf Month(myDate) = 11 And Weekday(myDate) = 5 And day(myDate) >= 22 And day(myDate) <= 28 Then 'Fourth Thursday in November
+        isWeekendOrHoliday = "Thanksgiving"
+    ElseIf Month(myDate) = 5 And Weekday(myDate) = 2 And day(myDate) >= 25 Then 'Last Monday in  May
+        isWeekendOrHoliday = "Memorial Day"
+    ElseIf Weekday(myDate) = 1 Or Weekday(myDate) = 7 Then
+        isWeekendOrHoliday = "Weekend"
+    Else
+        isWeekendOrHoliday = ""
+    End If
+End Function
+
+Function getWeekdayAbbreviation(myDate As Date) As String
+    If Weekday(myDate) = 1 Then
+        getWeekdayAbbreviation = "Su"
+    ElseIf Weekday(myDate) = 2 Then
+        getWeekdayAbbreviation = "M"
+    ElseIf Weekday(myDate) = 3 Then
+        getWeekdayAbbreviation = "Tu"
+    ElseIf Weekday(myDate) = 4 Then
+        getWeekdayAbbreviation = "W"
+    ElseIf Weekday(myDate) = 5 Then
+        getWeekdayAbbreviation = "Th"
+    ElseIf Weekday(myDate) = 6 Then
+        getWeekdayAbbreviation = "F"
+    Else
+        getWeekdayAbbreviation = "Sa"
+    End If
+End Function
+
+Function getMonthName(monthNum As Integer) As String
+    If monthNum = 1 Then
+        getMonthName = "January"
+    ElseIf monthNum = 2 Then
+        getMonthName = "February"
+    ElseIf monthNum = 3 Then
+        getMonthName = "March"
+    ElseIf monthNum = 4 Then
+        getMonthName = "April"
+    ElseIf monthNum = 5 Then
+        getMonthName = "May"
+    ElseIf monthNum = 6 Then
+        getMonthName = "June"
+    ElseIf monthNum = 7 Then
+        getMonthName = "July"
+    ElseIf monthNum = 8 Then
+        getMonthName = "August"
+    ElseIf monthNum = 9 Then
+        getMonthName = "September"
+    ElseIf monthNum = 10 Then
+        getMonthName = "October"
+    ElseIf monthNum = 11 Then
+        getMonthName = "November"
+    ElseIf monthNum = 12 Then
+        getMonthName = "December"
+    Else
+        Debug.Print "ERROR: Month number was not integer 1-12"
+    End If
+End Function
+
+Sub reformatCalendar(ws As Worksheet, furthestRightColumn As Integer, bottomRow As Integer)
+    Dim gridRange As Range, calendarRange As Range, datesRange As Range, currentColumn As Range, dateDescription As String
+    
+    ' Right align dates
+    Set datesRange = Range(Cells(CALENDAR_DATE_ROW - 1, CALENDAR_TASKS_COLUMN + 1), Cells(CALENDAR_DATE_ROW, furthestRightColumn))
+    datesRange.HorizontalAlignment = CALENDAR_DATES_ALIGNMENT
+    
+    ' Add borders around calendar
+    Set calendarRange = Range(Cells(CALENDAR_DATE_ROW - 1, CALENDAR_TASKS_COLUMN), Cells(bottomRow, furthestRightColumn))
+
+    With calendarRange.Borders
+        .LineStyle = xlContinuous
+        .Weight = xlThin
+    End With
+    calendarRange.BorderAround xlContinuous, xlThick
+
+    ' Shade in weekends/holidays and name holidays
+    For i = CALENDAR_TASKS_COLUMN + 1 To furthestRightColumn
+        If Cells(CALENDAR_DATE_ROW + 1, i).Value <> "" Then
+            dateDescription = Cells(CALENDAR_DATE_ROW + 1, i).Value
+            Cells(CALENDAR_DATE_ROW + 1, i).Value = ""
+            Set currentColumn = Range(Cells(CALENDAR_DATE_ROW + 1, i), Cells(bottomRow, i))
+            currentColumn.Interior.Color = RGB(CALENDAR_WEEKEND_COLOR_R, CALENDAR_WEEKEND_COLOR_G, CALENDAR_WEEKEND_COLOR_B)
+            
+            If dateDescription <> "Weekend" Then
+                Cells(CALENDAR_DATE_ROW + 1, i).Value = dateDescription
+                currentColumn.Merge
+                currentColumn.Orientation = xlUpward
+                currentColumn.VerticalAlignment = xlCenter
+            End If
+        End If
+    Next i
+    
+    ' Format grid to appropriate width
+    ws.Cells.EntireColumn.AutoFit
+    Set gridRange = Range(Cells(CALENDAR_DATE_ROW + 1, CALENDAR_TASKS_COLUMN + 1), Cells(bottomRow, furthestRightColumn))
+    gridRange.ColumnWidth = CALENDAR_DATE_COLUMN_WIDTH
+    gridRange.BorderAround xlContinuous, xlThick
+End Sub
+
+
